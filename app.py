@@ -3,6 +3,7 @@ import pandas as pd
 import io
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.pagebreak import Break
 
 # --- 데이터 정리 및 엑셀 생성 함수 ---
 def process_data(file_guri, file_nyj):
@@ -85,11 +86,8 @@ def process_data(file_guri, file_nyj):
 
 def generate_excel(final_df):
     buffer = io.BytesIO()
-    
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        # ---------------------------------------------------------
         # [1. 원본 데이터 시트 생성]
-        # ---------------------------------------------------------
         final_df.to_excel(writer, index=False, sheet_name='전체항목_원본(인쇄용)')
         wb = writer.book
         ws_raw = writer.sheets['전체항목_원본(인쇄용)']
@@ -116,10 +114,8 @@ def generate_excel(final_df):
         ws_raw.column_dimensions['C'].width = 11  
         ws_raw.column_dimensions['D'].width = 10  
         ws_raw.column_dimensions['E'].width = 8   
-        
         for col_idx in range(6, ws_raw.max_column - 1):
             ws_raw.column_dimensions[get_column_letter(col_idx)].width = 11 
-            
         ws_raw.column_dimensions[get_column_letter(col_improve)].width = 25 
         ws_raw.column_dimensions[get_column_letter(col_review)].width = 25  
 
@@ -129,8 +125,7 @@ def generate_excel(final_df):
             review_text = str(row[col_review - 1].value).strip() if row[col_review - 1].value else ""
             lines_imp = improve_text.count('\n') + (len(improve_text) // 20) + 1
             lines_rev = review_text.count('\n') + (len(review_text) // 20) + 1
-            max_lines = max(lines_imp, lines_rev)
-            ws_raw.row_dimensions[r_idx].height = max(45, max_lines * 18)
+            ws_raw.row_dimensions[r_idx].height = max(45, max(lines_imp, lines_rev) * 18)
 
         ws_raw.page_setup.orientation = ws_raw.ORIENTATION_LANDSCAPE
         ws_raw.sheet_properties.pageSetUpPr.fitToPage = True
@@ -141,16 +136,12 @@ def generate_excel(final_df):
         ws_raw.page_margins.top = 0.5
         ws_raw.page_margins.bottom = 0.5
 
-        # ---------------------------------------------------------
-        # [2. 요약 보고서 시트 생성 (실무 의사결정용 최적화)]
-        # ---------------------------------------------------------
+        # [2. 요약 보고서 시트 생성]
         ws_sum = wb.create_sheet(title='요약보고서(인쇄용)')
-        
         ws_sum.append(["📊 만족도 조사 핵심 요약 보고서"])
         ws_sum['A1'].font = Font(size=16, bold=True)
         ws_sum.append([""])
         
-        # 데이터 통계 계산
         numeric_cols = [col for col in final_df.columns if col[0].isdigit()]
         df_numeric = final_df.copy()
         for col in numeric_cols: df_numeric[col] = pd.to_numeric(df_numeric[col], errors='coerce')
@@ -160,21 +151,17 @@ def generate_excel(final_df):
         
         total_resp = len(final_df)
         overall_avg = overall_mean.mean().round(2)
-        
-        # 추천율 계산 ('예'가 포함된 응답수 / 전체 응답수)
         recom_cnt = final_df['18.추천여부'].astype(str).str.contains('예').sum()
         recom_rate = round((recom_cnt / total_resp) * 100, 1) if total_resp > 0 else 0
         
-        # [ 💡 1. 핵심 요약 대시보드 ]
         ws_sum.append(["[ 💡 핵심 요약 대시보드 ]"])
         ws_sum.cell(ws_sum.max_row, 1).font = Font(bold=True)
         dashboard_text = f"  ▶ 총 응답자: {total_resp}명      |      ▶ 전체 평균 만족도: {overall_avg}점      |      ▶ 지인 추천 의향: {recom_rate}%"
         ws_sum.append([dashboard_text])
         ws_sum.merge_cells(start_row=ws_sum.max_row, start_column=1, end_row=ws_sum.max_row, end_column=5)
-        ws_sum.cell(ws_sum.max_row, 1).font = Font(bold=True, size=11, color="0054FF") # 눈에 띄는 파란색
+        ws_sum.cell(ws_sum.max_row, 1).font = Font(bold=True, size=11, color="0054FF")
         ws_sum.append([""])
         
-        # [ 🏆 2. 학원 강점 & 약점 자동 추출 ]
         item_means = overall_mean.sort_values(ascending=False)
         top3 = item_means.head(3)
         bottom3 = item_means.tail(3)
@@ -208,10 +195,8 @@ def generate_excel(final_df):
                 ws_sum.merge_cells(start_row=ws_sum.max_row, start_column=1, end_row=ws_sum.max_row, end_column=5)
         ws_sum.append([""])
         
-        # [ 📌 3. 문항별 전체 표 ]
         ws_sum.append(["[ 📌 세부 문항별 평균 만족도 점수 (7점 만점) ]"])
-        ws_sum['A19'].font = Font(bold=True) # 줄 수가 고정되어있으므로 대략 적용
-        
+        ws_sum.cell(ws_sum.max_row, 1).font = Font(bold=True)
         headers = ["문항 번호", "평가 항목", "근로자 평균", "실업자 평균", "전체 평균"]
         ws_sum.append(headers)
         table_header_row = ws_sum.max_row
@@ -223,17 +208,13 @@ def generate_excel(final_df):
 
         has_worker = '근로자 과정' in mean_df.index
         has_unemp = '실업자 과정' in mean_df.index
-
         for i, col_name in enumerate(numeric_cols, 1):
             w_val = mean_df.loc['근로자 과정', col_name] if has_worker and pd.notna(mean_df.loc['근로자 과정', col_name]) else '-'
             u_val = mean_df.loc['실업자 과정', col_name] if has_unemp and pd.notna(mean_df.loc['실업자 과정', col_name]) else '-'
             o_val = overall_mean[col_name] if pd.notna(overall_mean[col_name]) else '-'
-            
             short_name = col_name.split('.', 1)[1] if '.' in col_name else col_name
             ws_sum.append([i, short_name, w_val, u_val, o_val])
-            
-            for col_idx in range(1, 6):
-                ws_sum.cell(row=ws_sum.max_row, column=col_idx).alignment = Alignment(horizontal='center', vertical='center')
+            for col_idx in range(1, 6): ws_sum.cell(row=ws_sum.max_row, column=col_idx).alignment = Alignment(horizontal='center', vertical='center')
 
         ws_sum.column_dimensions['A'].width = 10
         ws_sum.column_dimensions['B'].width = 24
@@ -242,12 +223,10 @@ def generate_excel(final_df):
         ws_sum.column_dimensions['E'].width = 13
         ws_sum.append([""])
 
-        # [ 📝 4. 주관식 피드백 및 Action Plan 작성란 ]
         def write_text_section(title, column_name, start_row):
             current_row = start_row
             ws_sum.cell(row=current_row, column=1, value=title).font = Font(bold=True, size=12)
             current_row += 1
-            
             items = final_df[final_df[column_name].astype(str).str.strip() != ''][column_name].dropna().unique()
             if len(items) == 0:
                 ws_sum.cell(row=current_row, column=1, value="  • 특별한 의견이 없습니다.")
@@ -259,9 +238,7 @@ def generate_excel(final_df):
                     cell = ws_sum.cell(row=current_row, column=1, value=f"  • {text_str}")
                     cell.alignment = Alignment(wrap_text=True, vertical='center')
                     ws_sum.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=5)
-                    
-                    estimated_lines = text_str.count('\n') + (len(text_str) // 35) + 1
-                    ws_sum.row_dimensions[current_row].height = max(30, estimated_lines * 18)
+                    ws_sum.row_dimensions[current_row].height = max(30, (text_str.count('\n') + (len(text_str) // 35) + 1) * 18)
                     current_row += 1
                 current_row += 1
             return current_row
@@ -269,14 +246,11 @@ def generate_excel(final_df):
         next_row = write_text_section("[ 💡 주요 개선요청사항 ]", "개선요청사항", ws_sum.max_row)
         next_row = write_text_section("[ 💌 주요 수강후기 ]", "수강후기", next_row)
 
-        # Action Plan 표 생성
         ws_sum.append(["[ 📋 사후 조치 계획서 (Action Plan) ]"])
         ws_sum.cell(row=ws_sum.max_row, column=1).font = Font(bold=True, size=12)
-        
         ws_sum.append(["구분", "주요 피드백 내용", "개선 및 조치 계획", "", "담당/기한"])
         action_header = ws_sum.max_row
         ws_sum.merge_cells(start_row=action_header, start_column=3, end_row=action_header, end_column=4)
-        
         for col in range(1, 6):
             cell = ws_sum.cell(row=action_header, column=col)
             cell.font = Font(bold=True)
@@ -286,13 +260,11 @@ def generate_excel(final_df):
         thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
         for col in range(1, 6): ws_sum.cell(row=action_header, column=col).border = thin_border
 
-        # 3칸의 수기 작성란 생성
         for i in range(1, 4):
             ws_sum.append([f"{i}", "", "", "", ""])
             curr_row = ws_sum.max_row
             ws_sum.merge_cells(start_row=curr_row, start_column=3, end_row=curr_row, end_column=4)
-            ws_sum.row_dimensions[curr_row].height = 50 # 손글씨로 쓰기 넉넉하게 높이 설정
-            
+            ws_sum.row_dimensions[curr_row].height = 50 
             for col in range(1, 6):
                 cell = ws_sum.cell(row=curr_row, column=col)
                 cell.border = thin_border
@@ -306,9 +278,9 @@ def generate_excel(final_df):
     return buffer
 
 # --- Streamlit 웹 화면 구성 ---
-st.set_page_config(page_title="간호학원 만족도 조사", page_icon="📊", layout="wide")
-st.title("📊 간호학원 만족도 조사 통합/인쇄 자동화 시스템")
-st.write("원본 파일 업로드 시 **[원본 시트]** 및 **[실무용 인사이트 요약 보고서]**가 함께 생성됩니다.")
+st.set_page_config(page_title="간호학원 만족도 조사 앱", page_icon="📊", layout="wide")
+st.title("📊 간호학원 만족도 조사 대시보드")
+st.write("원본 파일(.csv, .xlsx)을 업로드하시면 웹 화면에서 즉시 **요약 인사이트**와 **전체 데이터**를 확인하실 수 있습니다.")
 
 st.divider()
 col1, col2 = st.columns(2)
@@ -316,23 +288,95 @@ with col1: file_guri = st.file_uploader("📂 구리 학원 결과 업로드", t
 with col2: file_nyj = st.file_uploader("📂 남양주 학원 결과 업로드", type=['csv', 'xlsx'])
 st.divider()
 
-if st.button("🚀 최종 실무 보고서 생성 시작", use_container_width=True):
+if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", use_container_width=True):
     if file_guri or file_nyj:
-        with st.spinner('원장님과 강사님들이 가장 궁금해하실 강점과 약점을 파악하고 있습니다...'):
+        with st.spinner('데이터를 분석하고 웹 대시보드를 생성하고 있습니다...'):
             result_df = process_data(file_guri, file_nyj)
             
             if not result_df.empty:
-                st.success("데이터 분석 및 보고서 작성이 완료되었습니다! 다운로드하여 확인해 보세요.")
-                st.dataframe(result_df, use_container_width=True)
-                
+                # 엑셀 파일은 메모리에 생성해두고
                 excel_buffer = generate_excel(result_df)
                 
+                # 상단에 엑셀 다운로드 버튼 배치
                 st.download_button(
-                    label="📥 [인사이트 & 액션플랜 적용] 최종 엑셀 다운로드",
+                    label="📥 [인쇄용] 완성된 보고서 엑셀 파일 다운로드",
                     data=excel_buffer.getvalue(),
-                    file_name="완료_만족도조사_최종보고서(실무용).xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    file_name="완료_만족도조사_최종보고서(웹연동).xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
                 )
+                st.write("") # 간격 띄우기
+                
+                # --- ✨ 웹 대시보드 UI 시작 ✨ ---
+                # 탭을 활용해 요약본과 원본을 분리해서 보여줍니다.
+                tab1, tab2 = st.tabs(["📊 요약 보고서 (인사이트)", "📋 전체 원본 데이터"])
+                
+                # 숫자 통계 계산 (웹 화면용)
+                numeric_cols = [col for col in result_df.columns if col[0].isdigit()]
+                df_num = result_df.copy()
+                for col in numeric_cols: df_num[col] = pd.to_numeric(df_num[col], errors='coerce')
+                
+                overall_mean = df_num[numeric_cols].mean().round(2)
+                mean_df = df_num.groupby('과정구분')[numeric_cols].mean().round(2)
+                
+                total_resp = len(result_df)
+                overall_avg = overall_mean.mean().round(2)
+                recom_cnt = result_df['18.추천여부'].astype(str).str.contains('예').sum()
+                recom_rate = round((recom_cnt / total_resp) * 100, 1) if total_resp > 0 else 0
+
+                # [ 탭 1. 요약 보고서 화면 ]
+                with tab1:
+                    st.subheader("💡 핵심 요약 대시보드")
+                    # 핵심 지표 3가지를 예쁜 위젯으로 보여줍니다.
+                    metric1, metric2, metric3 = st.columns(3)
+                    metric1.metric("총 응답자 수", f"{total_resp}명")
+                    metric2.metric("전체 평균 만족도", f"{overall_avg}점")
+                    metric3.metric("지인 추천 의향(율)", f"{recom_rate}%")
+                    st.divider()
+                    
+                    st.subheader("🏆 학원 강점 및 시급한 개선점")
+                    col_top, col_bot = st.columns(2)
+                    
+                    item_means = overall_mean.sort_values(ascending=False)
+                    with col_top:
+                        st.info("**만족도 Top 3 (강점)**")
+                        for i, (idx, val) in enumerate(item_means.head(3).items(), 1):
+                            name = idx.split('.', 1)[1] if '.' in idx else idx
+                            st.write(f"**{i}위.** {name} ({val}점)")
+                            
+                    with col_bot:
+                        st.error("**만족도 Bottom 3 (약점)**")
+                        for i, (idx, val) in enumerate(item_means.tail(3).items(), 1):
+                            name = idx.split('.', 1)[1] if '.' in idx else idx
+                            st.write(f"**{i}위.** {name} ({val}점)")
+                    st.divider()
+                    
+                    st.subheader("⚠️ 요주의 문항 (평균 6.0점 미만)")
+                    warnings = item_means[item_means < 6.0]
+                    if len(warnings) == 0:
+                        st.success("6.0점 미만인 항목이 없습니다. 전반적으로 훌륭하게 운영되었습니다!")
+                    else:
+                        for idx, val in warnings.items():
+                            name = idx.split('.', 1)[1] if '.' in idx else idx
+                            st.warning(f"🚨 **{name} ({val}점)** : 관리자의 원인 분석이 필요합니다.")
+                    st.divider()
+                    
+                    st.subheader("📌 문항별 세부 만족도 점수")
+                    # 엑셀과 동일한 표 형태로 데이터프레임 조립
+                    table_data = []
+                    for i, col_name in enumerate(numeric_cols, 1):
+                        w_val = mean_df.loc['근로자 과정', col_name] if '근로자 과정' in mean_df.index and pd.notna(mean_df.loc['근로자 과정', col_name]) else '-'
+                        u_val = mean_df.loc['실업자 과정', col_name] if '실업자 과정' in mean_df.index and pd.notna(mean_df.loc['실업자 과정', col_name]) else '-'
+                        o_val = overall_mean[col_name] if pd.notna(overall_mean[col_name]) else '-'
+                        short_name = col_name.split('.', 1)[1] if '.' in col_name else col_name
+                        table_data.append({"문항 번호": i, "평가 항목": short_name, "근로자 평균": w_val, "실업자 평균": u_val, "전체 평균": o_val})
+                    st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+                
+                # [ 탭 2. 원본 데이터 화면 ]
+                with tab2:
+                    st.subheader("📋 전체 원본 데이터 확인")
+                    st.write("가로로 스크롤하여 모든 학생들의 개별 응답을 확인할 수 있습니다.")
+                    st.dataframe(result_df, use_container_width=True)
             else:
                 st.error("데이터를 읽어오지 못했습니다. 파일 양식을 확인해 주세요.")
     else:
