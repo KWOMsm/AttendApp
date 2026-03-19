@@ -288,7 +288,7 @@ with col1: file_guri = st.file_uploader("📂 구리 학원 결과 업로드", t
 with col2: file_nyj = st.file_uploader("📂 남양주 학원 결과 업로드", type=['csv', 'xlsx'])
 st.divider()
 
-if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", use_container_width=True):
+if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", width='stretch'): # ✨ 경고 패치: width 속성 적용
     if file_guri or file_nyj:
         with st.spinner('데이터를 분석하고 웹 대시보드를 생성하고 있습니다...'):
             result_df = process_data(file_guri, file_nyj)
@@ -303,12 +303,11 @@ if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", use_
                     data=excel_buffer.getvalue(),
                     file_name="완료_만족도조사_최종보고서(웹연동).xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch' # ✨ 경고 패치: width 속성 적용
                 )
                 st.write("") # 간격 띄우기
                 
-                # --- ✨ 웹 대시보드 UI 시작 ✨ ---
-                # 탭을 활용해 요약본과 원본을 분리해서 보여줍니다.
+                # --- 웹 대시보드 UI 시작 ---
                 tab1, tab2 = st.tabs(["📊 요약 보고서 (인사이트)", "📋 전체 원본 데이터"])
                 
                 # 숫자 통계 계산 (웹 화면용)
@@ -327,7 +326,6 @@ if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", use_
                 # [ 탭 1. 요약 보고서 화면 ]
                 with tab1:
                     st.subheader("💡 핵심 요약 대시보드")
-                    # 핵심 지표 3가지를 예쁜 위젯으로 보여줍니다.
                     metric1, metric2, metric3 = st.columns(3)
                     metric1.metric("총 응답자 수", f"{total_resp}명")
                     metric2.metric("전체 평균 만족도", f"{overall_avg}점")
@@ -362,7 +360,6 @@ if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", use_
                     st.divider()
                     
                     st.subheader("📌 문항별 세부 만족도 점수")
-                    # 엑셀과 동일한 표 형태로 데이터프레임 조립
                     table_data = []
                     for i, col_name in enumerate(numeric_cols, 1):
                         w_val = mean_df.loc['근로자 과정', col_name] if '근로자 과정' in mean_df.index and pd.notna(mean_df.loc['근로자 과정', col_name]) else '-'
@@ -370,13 +367,16 @@ if st.button("🚀 데이터 분석 및 엑셀 다운로드 파일 생성", use_
                         o_val = overall_mean[col_name] if pd.notna(overall_mean[col_name]) else '-'
                         short_name = col_name.split('.', 1)[1] if '.' in col_name else col_name
                         table_data.append({"문항 번호": i, "평가 항목": short_name, "근로자 평균": w_val, "실업자 평균": u_val, "전체 평균": o_val})
-                    st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+                    
+                    # ✨ 혼합 타입 에러 패치: .astype(str) 추가
+                    st.dataframe(pd.DataFrame(table_data).astype(str), width='stretch', hide_index=True)
                 
                 # [ 탭 2. 원본 데이터 화면 ]
                 with tab2:
                     st.subheader("📋 전체 원본 데이터 확인")
                     st.write("가로로 스크롤하여 모든 학생들의 개별 응답을 확인할 수 있습니다.")
-                    st.dataframe(result_df, use_container_width=True)
+                    # ✨ 혼합 타입 에러 패치: .astype(str) 추가
+                    st.dataframe(result_df.astype(str), width='stretch', hide_index=True)
             else:
                 st.error("데이터를 읽어오지 못했습니다. 파일 양식을 확인해 주세요.")
     else:
