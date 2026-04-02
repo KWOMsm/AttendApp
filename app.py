@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.pagebreak import Break
-from openpyxl.formatting.rule import FormulaRule # 💡 조건부 서식 라이브러리 추가
+from openpyxl.formatting.rule import FormulaRule
 
 def load_and_clean_data(file):
     if file.name.endswith('.csv'):
@@ -62,7 +62,6 @@ def create_attendance_excel(df, target_weeks, student_names):
     cumul_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid") 
     light_grey_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid") 
     
-    # 💡 조건부 서식에 쓰일 중도포기자 전용 디자인 세팅
     dropout_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
     dropout_font = Font(color="808080", strike=True)
     
@@ -70,6 +69,7 @@ def create_attendance_excel(df, target_weeks, student_names):
     bold_font = Font(bold=True)
     subject_font = Font(size=10) 
     teacher_font = Font(size=9, color="595959")
+    
     stat_title_font = Font(size=10, bold=True)
     stat_head_font = Font(size=9, bold=True)
     
@@ -182,6 +182,7 @@ def create_attendance_excel(df, target_weeks, student_names):
             
             for i in range(student_count):
                 r = start_row + 5 + i
+                
                 if ws.title == "통합입력":
                     if w_idx == 0:
                         ws.cell(row=r, column=1, value=student_names[i]).alignment = shrink_align
@@ -288,10 +289,10 @@ def create_attendance_excel(df, target_weeks, student_names):
                 r = start_row + 5 + i
                 data_range = f"B{r}:{get_column_letter(stat_col-1)}{r}"
                 
-                # 💡 핵심: 이름이 x로 끝나면 통계를 모조리 0으로 동결하는 스마트 수식
                 is_drop = f'OR(RIGHT($A{r},1)="x", RIGHT($A{r},1)="X")'
                 
-                ws.cell(row=r, column=stat_col, value=f'=IF({is_drop}, 0, {week_total_classes[sheet_name]})').alignment = shrink_align
+                # 💡 핵심 업데이트: 하이픈(-) 입력 시 총수업 시간에서 자동차감 되도록 MAX 수식 적용
+                ws.cell(row=r, column=stat_col, value=f'=IF({is_drop}, 0, MAX(0, {week_total_classes[sheet_name]} - COUNTIF({data_range}, "-")))').alignment = shrink_align
                 ws.cell(row=r, column=stat_col+1, value=f'=IF({is_drop}, 0, COUNTIF({data_range}, "X"))').alignment = shrink_align
                 ws.cell(row=r, column=stat_col+2, value=f'=IF({is_drop}, 0, COUNTIF({data_range}, "지"))').alignment = shrink_align
                 ws.cell(row=r, column=stat_col+3, value=f'=IF({is_drop}, 0, COUNTIF({data_range}, "조"))').alignment = shrink_align
@@ -313,12 +314,10 @@ def create_attendance_excel(df, target_weeks, student_names):
 
             ws.row_breaks.append(Break(id=start_row + block_height - 1))
 
-    # 💡 핵심: 엑셀 파일 내에 조건부 서식을 영구적으로 심어주는 코드
     for ws in sheets.values():
         max_c = 46 if ws.title != "통합입력" else 36
         max_r = 1 + (len(target_weeks) * block_height)
         rule = FormulaRule(formula=['OR(RIGHT($A1,1)="x", RIGHT($A1,1)="X")'], fill=dropout_fill, font=dropout_font)
-        # 1행부터 끝까지(A1:AU...) 룰 적용
         ws.conditional_formatting.add(f"A1:{get_column_letter(max_c)}{max_r}", rule)
 
     excel_data = io.BytesIO()
