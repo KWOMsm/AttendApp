@@ -5,6 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Alignment, Font, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.pagebreak import Break
+from openpyxl.formatting.rule import FormulaRule # 💡 조건부 서식 라이브러리 추가
 
 def load_and_clean_data(file):
     if file.name.endswith('.csv'):
@@ -61,11 +62,14 @@ def create_attendance_excel(df, target_weeks, student_names):
     cumul_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid") 
     light_grey_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid") 
     
+    # 💡 조건부 서식에 쓰일 중도포기자 전용 디자인 세팅
+    dropout_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    dropout_font = Font(color="808080", strike=True)
+    
     title_font = Font(size=14, bold=True, color="1F4E78")
     bold_font = Font(bold=True)
     subject_font = Font(size=10) 
     teacher_font = Font(size=9, color="595959")
-    
     stat_title_font = Font(size=10, bold=True)
     stat_head_font = Font(size=9, bold=True)
     
@@ -178,8 +182,6 @@ def create_attendance_excel(df, target_weeks, student_names):
             
             for i in range(student_count):
                 r = start_row + 5 + i
-                
-                # 💡 핵심: 첫 주차는 입력받은 이름을 쓰고, 2주차부터는 이전 주차를 바라보게 설정 (도미노 효과)
                 if ws.title == "통합입력":
                     if w_idx == 0:
                         ws.cell(row=r, column=1, value=student_names[i]).alignment = shrink_align
@@ -286,11 +288,14 @@ def create_attendance_excel(df, target_weeks, student_names):
                 r = start_row + 5 + i
                 data_range = f"B{r}:{get_column_letter(stat_col-1)}{r}"
                 
-                ws.cell(row=r, column=stat_col, value=week_total_classes[sheet_name]).alignment = shrink_align
-                ws.cell(row=r, column=stat_col+1, value=f'=COUNTIF({data_range}, "X")').alignment = shrink_align
-                ws.cell(row=r, column=stat_col+2, value=f'=COUNTIF({data_range}, "지")').alignment = shrink_align
-                ws.cell(row=r, column=stat_col+3, value=f'=COUNTIF({data_range}, "조")').alignment = shrink_align
-                ws.cell(row=r, column=stat_col+4, value=f"={get_column_letter(stat_col)}{r}-{get_column_letter(stat_col+1)}{r}-{get_column_letter(stat_col+2)}{r}-{get_column_letter(stat_col+3)}{r}").alignment = shrink_align
+                # 💡 핵심: 이름이 x로 끝나면 통계를 모조리 0으로 동결하는 스마트 수식
+                is_drop = f'OR(RIGHT($A{r},1)="x", RIGHT($A{r},1)="X")'
+                
+                ws.cell(row=r, column=stat_col, value=f'=IF({is_drop}, 0, {week_total_classes[sheet_name]})').alignment = shrink_align
+                ws.cell(row=r, column=stat_col+1, value=f'=IF({is_drop}, 0, COUNTIF({data_range}, "X"))').alignment = shrink_align
+                ws.cell(row=r, column=stat_col+2, value=f'=IF({is_drop}, 0, COUNTIF({data_range}, "지"))').alignment = shrink_align
+                ws.cell(row=r, column=stat_col+3, value=f'=IF({is_drop}, 0, COUNTIF({data_range}, "조"))').alignment = shrink_align
+                ws.cell(row=r, column=stat_col+4, value=f'=IF({is_drop}, 0, {get_column_letter(stat_col)}{r}-{get_column_letter(stat_col+1)}{r}-{get_column_letter(stat_col+2)}{r}-{get_column_letter(stat_col+3)}{r})').alignment = shrink_align
                 
                 for j in range(5):
                     current_stat_cell = f"{get_column_letter(stat_col+j)}{r}"
@@ -307,6 +312,14 @@ def create_attendance_excel(df, target_weeks, student_names):
                     ws.cell(row=row, column=col).border = thin_border
 
             ws.row_breaks.append(Break(id=start_row + block_height - 1))
+
+    # 💡 핵심: 엑셀 파일 내에 조건부 서식을 영구적으로 심어주는 코드
+    for ws in sheets.values():
+        max_c = 46 if ws.title != "통합입력" else 36
+        max_r = 1 + (len(target_weeks) * block_height)
+        rule = FormulaRule(formula=['OR(RIGHT($A1,1)="x", RIGHT($A1,1)="X")'], fill=dropout_fill, font=dropout_font)
+        # 1행부터 끝까지(A1:AU...) 룰 적용
+        ws.conditional_formatting.add(f"A1:{get_column_letter(max_c)}{max_r}", rule)
 
     excel_data = io.BytesIO()
     wb.save(excel_data)
@@ -328,11 +341,9 @@ if uploaded_file is not None:
     st.subheader("👨‍🎓 학생 명단 입력")
     st.info("엑셀이나 카톡에 있는 학생 명단을 복사해서 아래 빈칸에 붙여넣기 하세요. (엔터로 구분하여 한 줄에 한 명씩)")
     
-    # 기본값으로 예시 이름 세팅
     default_names = "\n".join([f"학생{i+1}" for i in range(10)])
     names_input = st.text_area("명단 입력칸:", value=default_names, height=200)
     
-    # 줄바꿈 기준으로 리스트화 (빈 줄 제거)
     student_names = [name.strip() for name in names_input.split('\n') if name.strip()]
     student_count = len(student_names)
     
@@ -354,7 +365,6 @@ if uploaded_file is not None:
             
         if st.button("출석부 엑셀 다운로드"):
             with st.spinner("엑셀 파일을 생성 중입니다..."):
-                # 입력받은 학생 이름 리스트를 함수로 전달
                 excel_file = create_attendance_excel(df, target_weeks_to_process, student_names)
                 st.download_button(
                     label="📥 완성된 출석부 다운로드",
