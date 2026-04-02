@@ -51,7 +51,8 @@ def shorten_subject(name):
         
     return name_str
 
-def create_attendance_excel(df, target_weeks, student_count):
+def create_attendance_excel(df, target_weeks, student_names):
+    student_count = len(student_names)
     wb = Workbook()
     
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
@@ -63,7 +64,7 @@ def create_attendance_excel(df, target_weeks, student_count):
     title_font = Font(size=14, bold=True, color="1F4E78")
     bold_font = Font(bold=True)
     subject_font = Font(size=10) 
-    teacher_font = Font(size=9, color="595959") # 💡 교사명 전용 폰트 (살짝 작고 진회색)
+    teacher_font = Font(size=9, color="595959")
     
     stat_title_font = Font(size=10, bold=True)
     stat_head_font = Font(size=9, bold=True)
@@ -106,9 +107,7 @@ def create_attendance_excel(df, target_weeks, student_count):
         for c in range(42, 47): 
             ws.column_dimensions[get_column_letter(c)].width = 6.0 
             
-    # 💡 교사 칸이 추가되었으므로 블록 높이를 1 늘림 (+8)
     block_height = student_count + 8 
-    # 학생 1명당 칸 높이 계산 (여유 공간 630 기준)
     student_row_height = max(15, min(28, int(630 / student_count)))
     
     for w_idx, current_week_start in enumerate(target_weeks):
@@ -145,7 +144,6 @@ def create_attendance_excel(df, target_weeks, student_count):
                         else:
                             main_subj = str(row_data.get('교과목', '')).strip()
                             raw_sub = str(row_data.get('세부교과', '')).strip()
-                            # 💡 훈련교사 데이터 파싱
                             raw_teacher = str(row_data.get('훈련교사', '')).strip()
                             if raw_teacher and raw_teacher != 'nan':
                                 teacher_name = raw_teacher
@@ -170,7 +168,6 @@ def create_attendance_excel(df, target_weeks, student_count):
             ws.row_dimensions[start_row].height = 25
             
             c = ws.cell(row=start_row+1, column=1, value="학생이름")
-            # 💡 학생 이름 칸을 교사 칸 높이까지 병합 (start_row+4 까지)
             ws.merge_cells(start_row=start_row+1, start_column=1, end_row=start_row+4, end_column=1)
             c.alignment = center_align; c.fill = header_fill; c.border = thin_border
             
@@ -180,9 +177,19 @@ def create_attendance_excel(df, target_weeks, student_count):
             ws.row_dimensions[start_row+4].height = 18 # 교사명
             
             for i in range(student_count):
-                student_cell = ws.cell(row=start_row+5+i, column=1, value=f"학생{i+1}")
-                student_cell.alignment = shrink_align; student_cell.border = thin_border
-                ws.row_dimensions[start_row+5+i].height = student_row_height 
+                r = start_row + 5 + i
+                
+                # 💡 핵심: 첫 주차는 입력받은 이름을 쓰고, 2주차부터는 이전 주차를 바라보게 설정 (도미노 효과)
+                if ws.title == "통합입력":
+                    if w_idx == 0:
+                        ws.cell(row=r, column=1, value=student_names[i]).alignment = shrink_align
+                    else:
+                        ws.cell(row=r, column=1, value=f"=A{r - block_height}").alignment = shrink_align
+                else:
+                    ws.cell(row=r, column=1, value=f"='통합입력'!A{r}").alignment = shrink_align
+                    
+                ws.cell(row=r, column=1).border = thin_border
+                ws.row_dimensions[r].height = student_row_height 
                 
         col_idx = 2
         
@@ -211,7 +218,6 @@ def create_attendance_excel(df, target_weeks, student_count):
                 while start_p < 7:
                     curr_item = disp_list[start_p]
                     end_p = start_p
-                    # 과목명과 교사명이 모두 같을 때만 병합
                     while end_p + 1 < 7 and disp_list[end_p + 1] == curr_item:
                         end_p += 1
                         
@@ -219,12 +225,10 @@ def create_attendance_excel(df, target_weeks, student_count):
                     c_start = col_idx + start_p
                     c_end = col_idx + end_p
                     
-                    # 과목명 입력
                     scell = ws.cell(row=start_row+3, column=c_start, value=curr_subj)
                     scell.font = subject_font
                     scell.alignment = shrink_align
                     
-                    # 교사명 입력
                     tcell = ws.cell(row=start_row+4, column=c_start, value=curr_teacher)
                     tcell.font = teacher_font
                     tcell.alignment = shrink_align
@@ -259,7 +263,6 @@ def create_attendance_excel(df, target_weeks, student_count):
         for sheet_name in ["기초간호", "보건간호", "공중간호"]:
             ws = sheets[sheet_name]
             
-            # 💡 통계 헤더 부분도 4행(교사 칸)까지 깔끔하게 병합되도록 수정
             ws.merge_cells(start_row=start_row+1, start_column=stat_col, end_row=start_row+1, end_column=stat_col+4)
             sc = ws.cell(row=start_row+1, column=stat_col, value="주간 통계")
             sc.alignment = shrink_align; sc.fill = stat_fill; sc.font = stat_title_font; sc.border = thin_border
@@ -312,7 +315,7 @@ def create_attendance_excel(df, target_weeks, student_count):
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="스마트 간호학원 출석부", layout="wide")
-st.title("📊 스마트 간호학원 출석부 (교사명 추가 완벽본)")
+st.title("📊 스마트 간호학원 출석부 생성기")
 
 uploaded_file = st.file_uploader("1년치 시간표 파일 업로드 (.csv, .xlsx)", type=["csv", "xlsx"])
 
@@ -322,25 +325,40 @@ if uploaded_file is not None:
     st.success(f"데이터 파싱 완료! 총 {len(unique_weeks)}개의 주간 일정이 확인되었습니다.")
     
     st.markdown("---")
-    student_count = st.number_input("👨‍🎓 학생 수를 설정하세요 (명):", min_value=1, max_value=100, value=40, step=1)
+    st.subheader("👨‍🎓 학생 명단 입력")
+    st.info("엑셀이나 카톡에 있는 학생 명단을 복사해서 아래 빈칸에 붙여넣기 하세요. (엔터로 구분하여 한 줄에 한 명씩)")
+    
+    # 기본값으로 예시 이름 세팅
+    default_names = "\n".join([f"학생{i+1}" for i in range(10)])
+    names_input = st.text_area("명단 입력칸:", value=default_names, height=200)
+    
+    # 줄바꿈 기준으로 리스트화 (빈 줄 제거)
+    student_names = [name.strip() for name in names_input.split('\n') if name.strip()]
+    student_count = len(student_names)
+    
+    st.write(f"👉 현재 인식된 학생 수: **{student_count}명**")
     st.markdown("---")
     
-    option = st.radio("출석부 생성 방식을 선택하세요:", ["전체 주간 한 번에 생성 (1년치 통합 파일)", "특정 주차만 선택해서 생성"])
-    
-    if option == "전체 주간 한 번에 생성 (1년치 통합 파일)":
-        target_weeks_to_process = unique_weeks
-        file_name_suffix = "전체일정"
+    if student_count == 0:
+        st.warning("학생 이름을 최소 1명 이상 입력해주세요.")
     else:
-        selected_week = st.selectbox("생성할 주차를 선택하세요", unique_weeks, format_func=lambda x: f"{x.strftime('%Y년 %m월 %d일')} 시작 주간")
-        target_weeks_to_process = [selected_week]
-        file_name_suffix = selected_week.strftime('%y%m%d')
+        option = st.radio("출석부 생성 방식을 선택하세요:", ["전체 주간 한 번에 생성 (1년치 통합 파일)", "특정 주차만 선택해서 생성"])
         
-    if st.button("출석부 엑셀 다운로드"):
-        with st.spinner("엑셀 파일을 생성 중입니다..."):
-            excel_file = create_attendance_excel(df, target_weeks_to_process, student_count)
-            st.download_button(
-                label="📥 완성된 출석부 다운로드",
-                data=excel_file,
-                file_name=f"자동화_출석부_{file_name_suffix}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        if option == "전체 주간 한 번에 생성 (1년치 통합 파일)":
+            target_weeks_to_process = unique_weeks
+            file_name_suffix = "전체일정"
+        else:
+            selected_week = st.selectbox("생성할 주차를 선택하세요", unique_weeks, format_func=lambda x: f"{x.strftime('%Y년 %m월 %d일')} 시작 주간")
+            target_weeks_to_process = [selected_week]
+            file_name_suffix = selected_week.strftime('%y%m%d')
+            
+        if st.button("출석부 엑셀 다운로드"):
+            with st.spinner("엑셀 파일을 생성 중입니다..."):
+                # 입력받은 학생 이름 리스트를 함수로 전달
+                excel_file = create_attendance_excel(df, target_weeks_to_process, student_names)
+                st.download_button(
+                    label="📥 완성된 출석부 다운로드",
+                    data=excel_file,
+                    file_name=f"자동화_출석부_{file_name_suffix}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
